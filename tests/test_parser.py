@@ -2,8 +2,6 @@
 
 from datetime import datetime
 
-import pytest
-
 from easyathome_ble import TemperatureMeasurement, parse_notification
 
 

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Callable
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from bleak import BleakClient
@@ -92,10 +94,8 @@ class EasyHomeDevice:
     async def disconnect(self) -> None:
         """Disconnect from device."""
         if self._client and self.connected:
-            try:
+            with contextlib.suppress(BleakError):
                 await self._client.stop_notify(NOTIFY_CHAR_UUID)
-            except BleakError:
-                pass
             await self._client.disconnect()
             self.connected = False
             self._client = None
@@ -179,17 +179,19 @@ class EasyHomeDevice:
         if self._client:
             await self._client.write_gatt_char(WRITE_CHAR_UUID, command, response=True)
 
-    def _notification_handler(self, _sender: int, data: bytes) -> None:
+    def _notification_handler(
+        self, characteristic: object, data: bytearray
+    ) -> None:
         """Handle notification from device.
 
         Args:
-            _sender: Characteristic handle (unused)
+            characteristic: GATT characteristic that sent notification
             data: Notification data
 
         """
         from . import parse_notification
 
-        measurement = parse_notification(data)
+        measurement = parse_notification(bytes(data))
         if measurement:
             self._notify_callback(measurement)
 

@@ -1,6 +1,6 @@
 """Tests for easyathome_ble device."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -90,7 +90,7 @@ async def test_set_datetime(mock_ble_device):
     device._client = mock_client
     device.connected = True
 
-    test_dt = datetime(2026, 2, 8, 14, 30, 25, tzinfo=timezone.utc)
+    test_dt = datetime(2026, 2, 8, 14, 30, 25, tzinfo=UTC)
     await device.set_datetime(test_dt)
 
     # Verify time sync command was sent

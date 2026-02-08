@@ -25,5 +25,6 @@ def mock_advertisement_data():
         service_data={},
         service_uuids=["0000ffe0-0000-1000-8000-00805f9b34fb"],
         rssi=-60,
+        tx_power=None,
         platform_data=(),
     )
