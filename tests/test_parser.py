@@ -1,29 +1,30 @@
 """Tests for easyathome_ble parser."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from easyathome_ble import TemperatureMeasurement, parse_notification
 
 
-def test_parse_measurement_with_timestamp():
-    """Test parsing a temperature measurement with timestamp in Celsius."""
-
-    # Flags: 0b00000010 -> Celsius, timestamp present
-    # Temp: mantissa=3755, exponent=-2 -> 37.55°C
+def test_parse_live_measurement():
+    """Test parsing a live temperature measurement."""
+    # Sample notification: live reading of 36.52°C on 2026-02-08 14:30:25
     data = bytes(
         [
-            0x02,
-            0xAB,
-            0x0E,
+            0x00,  # Byte 0: header
+            0x01,  # Byte 1: message type (1 = live)
             0x00,
-            0xFE,
-            0xE8,
-            0x07,  # 2024 LE
-            0x02,  # month
-            0x09,  # day
-            0x0E,  # hour
-            0x1E,  # minute
-            0x00,  # second
+            0x00,  # Bytes 2-3: unknown
+            0x44,
+            0x0E,  # Bytes 4-5: temperature (3652 / 100 = 36.52°C) little-endian
+            0x00,
+            0x00,  # Bytes 6-7: unknown
+            0x38,
+            0x00,  # Bytes 8-9: year (56 + 1970 = 2026) little-endian
+            0x02,  # Byte 10: month (February)
+            0x08,  # Byte 11: day
+            0x0E,  # Byte 12: hour (14:00)
+            0x1E,  # Byte 13: minute (30)
+            0x19,  # Byte 14: second (25)
         ]
     )
 
@@ -31,32 +32,40 @@ def test_parse_measurement_with_timestamp():
 
     assert result is not None
     assert isinstance(result, TemperatureMeasurement)
-    assert result.temperature == 37.55
-    assert result.timestamp == datetime(2024, 2, 9, 14, 30, tzinfo=UTC)
+    assert result.temperature == 36.52
+    assert result.timestamp == datetime(2026, 2, 8, 14, 30, 25)
     assert result.is_live is True
 
 
-def test_parse_measurement_fahrenheit():
-    """Test parsing a Fahrenheit value converted to Celsius."""
-
-    # Flags: 0b00000001 -> Fahrenheit, no timestamp
-    # Temp: 99.5°F (mantissa=9950, exponent=-2)
+def test_parse_historical_measurement():
+    """Test parsing a historical temperature measurement."""
+    # Sample notification: historical reading of 37.10°C on 2026-02-07 22:15:00
     data = bytes(
         [
-            0x01,
-            0xDE,
-            0x26,
+            0x00,  # Byte 0: header
+            0x11,  # Byte 1: message type (17 = historical)
             0x00,
-            0xFE,
+            0x00,  # Bytes 2-3: unknown
+            0x7E,
+            0x0E,  # Bytes 4-5: temperature (3710 / 100 = 37.10°C) little-endian
+            0x00,
+            0x00,  # Bytes 6-7: unknown
+            0x38,
+            0x00,  # Bytes 8-9: year (56 + 1970 = 2026) little-endian
+            0x02,  # Byte 10: month (February)
+            0x07,  # Byte 11: day
+            0x16,  # Byte 12: hour (22:00)
+            0x0F,  # Byte 13: minute (15)
+            0x00,  # Byte 14: second (0)
         ]
     )
 
     result = parse_notification(data)
 
     assert result is not None
-    # 99.5°F = 37.5°C
-    assert result.temperature == 37.5
-    assert result.is_live is True
+    assert result.temperature == 37.10
+    assert result.timestamp == datetime(2026, 2, 7, 22, 15, 0)
+    assert result.is_live is False
 
 
 def test_parse_invalid_short_data():
@@ -70,17 +79,24 @@ def test_parse_invalid_short_data():
 
 def test_parse_invalid_timestamp():
     """Test that invalid timestamp returns None."""
-    # Timestamp flag set but payload too short
+    # Invalid month (13)
     data = bytes(
         [
-            0x02,
-            0xAB,
-            0x0E,
             0x00,
-            0xFE,
-            0xE8,
-            0x07,
-            0x13,  # Invalid month 19
+            0x01,
+            0x00,
+            0x00,
+            0x44,
+            0x0E,  # Temperature
+            0x00,
+            0x00,
+            0x38,
+            0x00,  # Year 2026
+            0x0D,  # Month 13 (invalid)
+            0x08,
+            0x0E,
+            0x1E,
+            0x19,
         ]
     )
 
@@ -95,10 +111,20 @@ def test_parse_edge_case_temperatures():
     data_low = bytes(
         [
             0x00,
+            0x01,
             0x00,
             0x00,
             0x00,
+            0x00,  # 0 / 100 = 0.00°C
             0x00,
+            0x00,
+            0x38,
+            0x00,
+            0x02,
+            0x08,
+            0x0E,
+            0x1E,
+            0x19,
         ]
     )
 
@@ -110,10 +136,20 @@ def test_parse_edge_case_temperatures():
     data_high = bytes(
         [
             0x00,
-            0xA8,
-            0x19,
+            0x01,
             0x00,
-            0xFE,  # 0x19A8 mantissa=6568 -> 65.68°C
+            0x00,
+            0x68,
+            0x10,  # 4200 / 100 = 42.00°C
+            0x00,
+            0x00,
+            0x38,
+            0x00,
+            0x02,
+            0x08,
+            0x0E,
+            0x1E,
+            0x19,
         ]
     )
 
