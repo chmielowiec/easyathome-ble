@@ -3,89 +3,85 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from . import TemperatureMeasurement
 
 _LOGGER = logging.getLogger(__name__)
 
 
+def _decode_ieee_11073_float(raw: bytes) -> float:
+    """Decode IEEE-11073 32-bit float used by the Health Thermometer spec."""
+
+    if len(raw) != 4:
+        raise ValueError("IEEE-11073 float must be 4 bytes")
+
+    mantissa = int.from_bytes(raw[:3], "little", signed=True)
+    exponent_raw = raw[3]
+    exponent = exponent_raw - 0x100 if exponent_raw & 0x80 else exponent_raw
+    return mantissa * (10**exponent)
+
+
 def parse_notification(data: bytes) -> TemperatureMeasurement | None:
-    """Parse temperature notification from EBT-300 thermometer.
+    """Parse Health Thermometer measurement notifications.
 
-    Data format (15 bytes):
-    Byte[0]: Header
-    Byte[1]: Message type (1 = live, 17 = historical)
-    Byte[2-3]: Unknown
-    Byte[4-5]: Temperature (little-endian, divide by 100.0)
-    Byte[6-7]: Unknown
-    Byte[8-9]: Year (little-endian, add 1970)
-    Byte[10]: Month (1-12)
-    Byte[11]: Day (1-31)
-    Byte[12]: Hour (0-23)
-    Byte[13]: Minute (0-59)
-    Byte[14]: Second (0-59)
+    The Yuncheng A33 advertises the standard Health Thermometer service
+    (0x1809) and sends temperature measurements on the Temperature
+    Measurement characteristic (0x2A1C). The payload matches the Bluetooth
+    SIG specification:
 
-    Args:
-        data: Raw notification data
-
-    Returns:
-        TemperatureMeasurement if valid, None otherwise
-
+    - Byte 0: Flags
+      bit 0 -> 0 = Celsius, 1 = Fahrenheit
+      bit 1 -> Timestamp present
+      bit 2 -> Temperature type present (ignored)
+    - Bytes 1-4: IEEE-11073 FLOAT temperature value
+    - Bytes 5-11: Optional timestamp (year LE, month, day, hour, minute, second)
+    - Remaining bytes: Optional temperature type (ignored)
     """
-    if len(data) < 15:
+
+    if len(data) < 5:
         _LOGGER.debug("Notification data too short: %d bytes", len(data))
         return None
 
-    message_type = data[1]
-
-    # Only process live (1) or historical (17) measurements
-    if message_type not in (1, 17):
-        _LOGGER.debug("Unknown message type: %d", message_type)
-        return None
+    flags = data[0]
+    fahrenheit = bool(flags & 0x01)
+    timestamp_present = bool(flags & 0x02)
 
     try:
-        # Parse temperature (little-endian 16-bit integer, divide by 100)
-        temp_raw = (data[5] << 8) | data[4]
-        temperature = temp_raw / 100.0
-
-        # Parse timestamp
-        year = 1970 + data[8] + (data[9] << 8)
-        month = data[10]
-        day = data[11]
-        hour = data[12]
-        minute = data[13]
-        second = data[14]
-
-        # Validate timestamp components
-        if not (1970 <= year <= 2100):
-            _LOGGER.debug("Invalid year: %d", year)
-            return None
-        if not (1 <= month <= 12):
-            _LOGGER.debug("Invalid month: %d", month)
-            return None
-        if not (1 <= day <= 31):
-            _LOGGER.debug("Invalid day: %d", day)
-            return None
-        if not (0 <= hour <= 23):
-            _LOGGER.debug("Invalid hour: %d", hour)
-            return None
-        if not (0 <= minute <= 59):
-            _LOGGER.debug("Invalid minute: %d", minute)
-            return None
-        if not (0 <= second <= 59):
-            _LOGGER.debug("Invalid second: %d", second)
-            return None
-
-        timestamp = datetime(year, month, day, hour, minute, second)
-        is_live = message_type == 1
-
-        return TemperatureMeasurement(
-            temperature=temperature,
-            timestamp=timestamp,
-            is_live=is_live,
-        )
-
-    except (ValueError, IndexError) as ex:
-        _LOGGER.debug("Failed to parse notification: %s", ex)
+        temperature_c = _decode_ieee_11073_float(data[1:5])
+    except ValueError as ex:
+        _LOGGER.debug("Invalid temperature payload: %s", ex)
         return None
+
+    if fahrenheit:
+        temperature_c = (temperature_c - 32.0) * 5.0 / 9.0
+
+    offset = 5
+    timestamp = None
+
+    if timestamp_present:
+        if len(data) < offset + 7:
+            _LOGGER.debug(
+                "Timestamp flag set but payload too short: %d bytes", len(data)
+            )
+            return None
+
+        year = int.from_bytes(data[offset : offset + 2], "little")
+        month, day, hour, minute, second = data[offset + 2 : offset + 7]
+
+        try:
+            timestamp = datetime(
+                year, month, day, hour, minute, second, tzinfo=timezone.utc
+            )
+        except ValueError as ex:
+            _LOGGER.debug("Invalid timestamp in payload: %s", ex)
+            return None
+
+    if timestamp is None:
+        timestamp = datetime.now(tz=timezone.utc)
+
+    return TemperatureMeasurement(
+        temperature=round(temperature_c, 2),
+        timestamp=timestamp,
+        is_live=True,
+    )

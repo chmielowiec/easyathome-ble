@@ -127,3 +127,6 @@ dmypy.json
 
 # macOS
 .DS_Store
+
+# Source docs
+docs/source/

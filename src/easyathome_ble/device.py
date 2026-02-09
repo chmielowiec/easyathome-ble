@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -19,9 +19,10 @@ if TYPE_CHECKING:
     from .models import TemperatureMeasurement
 
 
-SERVICE_UUID = UUID("0000ffe0-0000-1000-8000-00805f9b34fb")
-WRITE_CHAR_UUID = UUID("0000ffe1-0000-1000-8000-00805f9b34fb")
-NOTIFY_CHAR_UUID = UUID("0000ffe2-0000-1000-8000-00805f9b34fb")
+SERVICE_UUID = UUID("00001809-0000-1000-8000-00805f9b34fb")
+NOTIFY_CHAR_UUID = UUID("00002a1c-0000-1000-8000-00805f9b34fb")
+CURRENT_TIME_SERVICE_UUID = UUID("00001805-0000-1000-8000-00805f9b34fb")
+CURRENT_TIME_CHAR_UUID = UUID("00002a2b-0000-1000-8000-00805f9b34fb")
 
 
 class EasyHomeDevice:
@@ -35,15 +36,7 @@ class EasyHomeDevice:
         ble_device: BLEDevice | None = None,
         advertisement_data: AdvertisementData | None = None,
     ) -> None:
-        """Initialize the device.
-
-        Args:
-            address: Bluetooth address of device
-            notify_callback: Callback for temperature notifications
-            ble_device: BLE device object
-            advertisement_data: Advertisement data
-
-        """
+        """Initialize the device."""
         self.address = address
         self._notify_callback = notify_callback
         self._ble_device = ble_device
@@ -62,13 +55,7 @@ class EasyHomeDevice:
             self._advertisement_data = advertisement_data
 
     async def connect(self) -> None:
-        """Connect to device and start notifications.
-
-        Raises:
-            BleakError: If connection fails
-            TimeoutError: If connection times out
-
-        """
+        """Connect to device and start notifications."""
         if self.connected:
             return
 
@@ -79,16 +66,11 @@ class EasyHomeDevice:
             BleakClient,
             self._ble_device,
             self.address,
+            disconnected_callback=lambda _client: self.device_disconnected_handler(),
         )
         self.connected = True
 
-        # Send time synchronization
-        await self._send_time_sync()
-
-        # Send unit synchronization (Celsius)
-        await self._send_unit_sync(celsius=True)
-
-        # Start notifications
+        await self._maybe_sync_time()
         await self._client.start_notify(NOTIFY_CHAR_UUID, self._notification_handler)
 
     async def disconnect(self) -> None:
@@ -100,95 +82,48 @@ class EasyHomeDevice:
             self.connected = False
             self._client = None
 
-    async def set_datetime(self, dt: datetime) -> None:
-        """Set device datetime.
+    async def _maybe_sync_time(self) -> None:
+        """Best-effort time synchronization using Current Time Service if present."""
 
-        Args:
-            dt: Datetime to set (should be timezone aware)
+        if not self._client:
+            return
 
-        Raises:
-            BleakError: If device not connected
-            ValueError: If datetime is not timezone aware
+        try:
+            services = await self._client.get_services()
+            if not services.get_service(CURRENT_TIME_SERVICE_UUID):
+                return
 
-        """
-        if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
-            raise ValueError("timezone aware datetime object expected")
+            if not services.get_characteristic(CURRENT_TIME_CHAR_UUID):
+                return
 
-        if not self._client or not self.connected:
-            raise BleakError("Device not connected")
+            now = datetime.now(tz=timezone.utc).astimezone()
+            payload = (
+                now.year.to_bytes(2, "little")
+                + bytes(
+                    [
+                        now.month,
+                        now.day,
+                        now.hour,
+                        now.minute,
+                        now.second,
+                        now.isoweekday(),
+                        0,  # fractions256
+                    ]
+                )
+            )
 
-        await self._send_time_sync(dt)
-
-    async def set_unit(self, celsius: bool = True) -> None:
-        """Set temperature unit.
-
-        Args:
-            celsius: True for Celsius, False for Fahrenheit
-
-        Raises:
-            BleakError: If device not connected
-
-        """
-        if not self._client or not self.connected:
-            raise BleakError("Device not connected")
-
-        await self._send_unit_sync(celsius)
-
-    async def _send_time_sync(self, dt: datetime | None = None) -> None:
-        """Send time synchronization command.
-
-        Args:
-            dt: Datetime to sync, defaults to current time
-
-        """
-        if dt is None:
-            dt = datetime.now().astimezone()
-
-        if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
-            raise ValueError("timezone aware datetime object expected")
-
-        # Command format: [90, 3, 6, year-1970, month, day, hour, minute, second]
-        year_offset = dt.year - 1970
-        command = bytes([
-            90,                  # Command header
-            3,                   # Command type
-            6,                   # Length
-            year_offset,         # Year since 1970
-            dt.month,            # Month (1-12)
-            dt.day,              # Day (1-31)
-            dt.hour,             # Hour (0-23)
-            dt.minute,           # Minute (0-59)
-            dt.second,           # Second (0-59)
-        ])
-
-        if self._client:
-            await self._client.write_gatt_char(WRITE_CHAR_UUID, command, response=True)
-
-    async def _send_unit_sync(self, celsius: bool = True) -> None:
-        """Send unit synchronization command.
-
-        Args:
-            celsius: True for Celsius, False for Fahrenheit
-
-        """
-        # Command format: [90, 6, 6, unit_type, 255, 255, 255, 255, 250]
-        # unit_type: 1 = Celsius, 2 = Fahrenheit
-        unit_type = 1 if celsius else 2
-        command = bytes([90, 6, 6, unit_type, 255, 255, 255, 255, 250])
-
-        if self._client:
-            await self._client.write_gatt_char(WRITE_CHAR_UUID, command, response=True)
+            await self._client.write_gatt_char(
+                CURRENT_TIME_CHAR_UUID, payload, response=True
+            )
+        except Exception:
+            # Device may not support CTS write; ignore failures
+            return
 
     def _notification_handler(
         self, characteristic: object, data: bytearray
     ) -> None:
-        """Handle notification from device.
+        """Handle notification from device."""
 
-        Args:
-            characteristic: GATT characteristic that sent notification
-            data: Notification data
-
-        """
         from . import parse_notification
 
         measurement = parse_notification(bytes(data))
@@ -196,11 +131,7 @@ class EasyHomeDevice:
             self._notify_callback(measurement)
 
     def device_disconnected_handler(self, *, notify: bool = True) -> None:
-        """Handle device disconnection.
+        """Handle device disconnection."""
 
-        Args:
-            notify: Whether to notify about disconnection
-
-        """
         self.connected = False
         self._client = None
