@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "easyathome-ble"
-version = "0.1.0"
+version = "0.2.0"
 description = "Easy@Home BLE Devices"
 authors = ["Robert Chmielowiec <robert+github@chmielowiec.net>"]
 license = "MIT"
