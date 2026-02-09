@@ -9,8 +9,7 @@ from bleak.exc import BleakError
 from easyathome_ble import EasyHomeDevice, TemperatureMeasurement
 
 
-@pytest.mark.asyncio
-async def test_device_init():
+def test_device_init():
     """Test device initialization."""
     callback = MagicMock()
     device = EasyHomeDevice(address="AA:BB:CC:DD:EE:FF", notify_callback=callback)
@@ -172,8 +171,7 @@ async def test_set_unit_fahrenheit(mock_ble_device):
     assert command == expected
 
 
-@pytest.mark.asyncio
-async def test_notification_handler():
+def test_notification_handler():
     """Test notification handler processes data correctly."""
     received_measurements = []
 
@@ -199,8 +197,7 @@ async def test_notification_handler():
     assert measurement.is_live is True
 
 
-@pytest.mark.asyncio
-async def test_update_ble_device(mock_ble_device, mock_advertisement_data):
+def test_update_ble_device(mock_ble_device, mock_advertisement_data):
     """Test updating BLE device."""
     callback = MagicMock()
     device = EasyHomeDevice(address="AA:BB:CC:DD:EE:FF", notify_callback=callback)

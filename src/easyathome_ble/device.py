@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from bleak.backends.device import BLEDevice
     from bleak.backends.scanner import AdvertisementData
 
-    from . import TemperatureMeasurement
+    from .models import TemperatureMeasurement
 
 
 SERVICE_UUID = UUID("0000ffe0-0000-1000-8000-00805f9b34fb")
