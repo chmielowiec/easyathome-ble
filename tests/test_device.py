@@ -111,6 +111,7 @@ def test_update_ble_device(mock_ble_device, mock_advertisement_data):
     assert device._ble_device == mock_ble_device
     assert device._advertisement_data == mock_advertisement_data
 
+
 @pytest.mark.asyncio
 async def test_set_datetime(mock_ble_device):
     """Test setting device datetime."""
