@@ -23,16 +23,16 @@ packages = [
 "Changelog" = "https://github.com/chmielowiec/easyathome-ble/blob/main/CHANGELOG.md"
 
 [tool.poetry.dependencies]
-python = ">=3.11,<4"
-bleak = {version = ">=0.21.1", python = ">=3.10,<3.14"}
-bleak-retry-connector = ">=3.0.0"
+python = "^3.11"
+bleak = "^0.24.0"
+bleak-retry-connector = "^3.4.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = ">=8.3,<10.0"
-pytest-cov = ">=6,<8"
-pytest-asyncio = ">0.17"
-ruff = ">=0.8.0"
-mypy = ">=1.0"
+pytest = "^8.0.0"
+pytest-cov = "^6.0.0"
+pytest-asyncio = "^0.24.0"
+ruff = "^0.9.0"
+mypy = "^1.13.0"
 
 [tool.semantic_release]
 branch = "main"
@@ -59,9 +59,10 @@ exclude_lines = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+preview = true
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "A", "C4", "T20", "SIM"]
+select = ["E", "F", "W", "I", "UP", "B", "A", "C4", "T20", "SIM", "LOG", "RUF", "ASYNC"]
 ignore = []
 
 [tool.mypy]
