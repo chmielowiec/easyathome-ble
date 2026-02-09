@@ -35,15 +35,7 @@ class EasyHomeDevice:
         ble_device: BLEDevice | None = None,
         advertisement_data: AdvertisementData | None = None,
     ) -> None:
-        """Initialize the device.
-
-        Args:
-            address: Bluetooth address of device
-            notify_callback: Callback for temperature notifications
-            ble_device: BLE device object
-            advertisement_data: Advertisement data
-
-        """
+        """Initialize the device."""
         self.address = address
         self._notify_callback = notify_callback
         self._ble_device = ble_device
@@ -62,13 +54,7 @@ class EasyHomeDevice:
             self._advertisement_data = advertisement_data
 
     async def connect(self) -> None:
-        """Connect to device and start notifications.
-
-        Raises:
-            BleakError: If connection fails
-            TimeoutError: If connection times out
-
-        """
+        """Connect to device and start notifications."""
         if self.connected:
             return
 
@@ -79,6 +65,7 @@ class EasyHomeDevice:
             BleakClient,
             self._ble_device,
             self.address,
+            disconnected_callback=lambda _client: self.device_disconnected_handler(),
         )
         self.connected = True
 
@@ -87,8 +74,6 @@ class EasyHomeDevice:
 
         # Send unit synchronization (Celsius)
         await self._send_unit_sync(celsius=True)
-
-        # Start notifications
         await self._client.start_notify(NOTIFY_CHAR_UUID, self._notification_handler)
 
     async def disconnect(self) -> None:
@@ -182,13 +167,8 @@ class EasyHomeDevice:
     def _notification_handler(
         self, characteristic: object, data: bytearray
     ) -> None:
-        """Handle notification from device.
+        """Handle notification from device."""
 
-        Args:
-            characteristic: GATT characteristic that sent notification
-            data: Notification data
-
-        """
         from . import parse_notification
 
         measurement = parse_notification(bytes(data))
@@ -196,11 +176,7 @@ class EasyHomeDevice:
             self._notify_callback(measurement)
 
     def device_disconnected_handler(self, *, notify: bool = True) -> None:
-        """Handle device disconnection.
+        """Handle device disconnection."""
 
-        Args:
-            notify: Whether to notify about disconnection
-
-        """
         self.connected = False
         self._client = None

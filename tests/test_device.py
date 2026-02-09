@@ -38,7 +38,6 @@ async def test_device_connect(mock_ble_device):
         mock_establish.assert_called_once()
         # Verify time sync was sent (2 write calls: time + unit)
         assert mock_client.write_gatt_char.call_count == 2
-        # Verify notifications started
         mock_client.start_notify.assert_called_once()
 
 
@@ -73,6 +72,44 @@ async def test_device_disconnect(mock_ble_device):
         assert device.connected is False
         mock_client.stop_notify.assert_called_once()
         mock_client.disconnect.assert_called_once()
+
+
+@pytest.mark.asyncio
+def test_notification_handler():
+    """Test notification handler processes data correctly."""
+    received_measurements = []
+
+    def callback(measurement: TemperatureMeasurement):
+        received_measurements.append(measurement)
+
+    device = EasyHomeDevice(address="AA:BB:CC:DD:EE:FF", notify_callback=callback)
+
+    # Sample notification data: 36.52°C on 2026-02-08 14:30:25
+    notification_data = bytes([
+        0x00, 0x01, 0x00, 0x00,
+        0x44, 0x0E,  # 36.52°C
+        0x00, 0x00,
+        0x38, 0x00,  # 2026
+        0x02, 0x08, 0x0E, 0x1E, 0x19,
+    ])
+
+    device._notification_handler(0, notification_data)
+
+    assert len(received_measurements) == 1
+    measurement = received_measurements[0]
+    assert measurement.temperature == 36.52
+    assert measurement.is_live is True
+
+
+def test_update_ble_device(mock_ble_device, mock_advertisement_data):
+    """Test updating BLE device."""
+    callback = MagicMock()
+    device = EasyHomeDevice(address="AA:BB:CC:DD:EE:FF", notify_callback=callback)
+
+    device.update_ble_device(mock_ble_device, mock_advertisement_data)
+
+    assert device._ble_device == mock_ble_device
+    assert device._advertisement_data == mock_advertisement_data
 
 
 @pytest.mark.asyncio
@@ -169,40 +206,3 @@ async def test_set_unit_fahrenheit(mock_ble_device):
 
     expected = bytes([90, 6, 6, 2, 255, 255, 255, 255, 250])
     assert command == expected
-
-
-def test_notification_handler():
-    """Test notification handler processes data correctly."""
-    received_measurements = []
-
-    def callback(measurement: TemperatureMeasurement):
-        received_measurements.append(measurement)
-
-    device = EasyHomeDevice(address="AA:BB:CC:DD:EE:FF", notify_callback=callback)
-
-    # Sample notification data: 36.52°C on 2026-02-08 14:30:25
-    notification_data = bytes([
-        0x00, 0x01, 0x00, 0x00,
-        0x44, 0x0E,  # 36.52°C
-        0x00, 0x00,
-        0x38, 0x00,  # 2026
-        0x02, 0x08, 0x0E, 0x1E, 0x19,
-    ])
-
-    device._notification_handler(0, notification_data)
-
-    assert len(received_measurements) == 1
-    measurement = received_measurements[0]
-    assert measurement.temperature == 36.52
-    assert measurement.is_live is True
-
-
-def test_update_ble_device(mock_ble_device, mock_advertisement_data):
-    """Test updating BLE device."""
-    callback = MagicMock()
-    device = EasyHomeDevice(address="AA:BB:CC:DD:EE:FF", notify_callback=callback)
-
-    device.update_ble_device(mock_ble_device, mock_advertisement_data)
-
-    assert device._ble_device == mock_ble_device
-    assert device._advertisement_data == mock_advertisement_data
