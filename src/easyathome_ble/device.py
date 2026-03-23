@@ -147,7 +147,7 @@ class EasyHomeDevice:
         ])
 
         if self._client:
-            await self._client.write_gatt_char(WRITE_CHAR_UUID, command, response=True)
+            await self._write_command(command)
 
     async def _send_unit_sync(self, celsius: bool = True) -> None:
         """Send unit synchronization command.
@@ -162,7 +162,57 @@ class EasyHomeDevice:
         command = bytes([90, 6, 6, unit_type, 255, 255, 255, 255, 250])
 
         if self._client:
-            await self._client.write_gatt_char(WRITE_CHAR_UUID, command, response=True)
+            await self._write_command(command)
+
+    async def _write_command(self, command: bytes) -> None:
+        """Write a command using the characteristic's supported write mode."""
+        if not self._client:
+            return
+
+        response = self._preferred_write_response()
+
+        try:
+            await self._client.write_gatt_char(
+                WRITE_CHAR_UUID, command, response=response
+            )
+        except BleakError as ex:
+            if not self._should_retry_without_response(ex, response):
+                raise
+
+            await self._client.write_gatt_char(
+                WRITE_CHAR_UUID, command, response=not response
+            )
+
+    def _preferred_write_response(self) -> bool:
+        """Return the preferred write mode for the command characteristic."""
+        if not self._client or self._client.services is None:
+            return False
+
+        characteristic = self._client.services.get_characteristic(WRITE_CHAR_UUID)
+        if characteristic is None or not hasattr(characteristic, "properties"):
+            return False
+
+        properties = set(characteristic.properties)
+
+        if "write-without-response" in properties:
+            return False
+
+        return "write" in properties
+
+    @staticmethod
+    def _should_retry_without_response(ex: BleakError, response: bool) -> bool:
+        """Return if the write should be retried without response.
+
+        Only retries when the first attempt used response=True and the device
+        rejected it with ATT error 0x06 (Request Not Supported). The reverse
+        (write-without-response → write-with-response) is not retried because
+        a device that advertises only write-with-response is expected to be
+        handled correctly by _preferred_write_response.
+        """
+        if not response:
+            return False
+
+        return "request not supported" in str(ex).lower()
 
     def _notification_handler(
         self, characteristic: object, data: bytearray

@@ -30,6 +30,7 @@ async def test_device_connect(mock_ble_device):
 
     with patch("easyathome_ble.device.establish_connection") as mock_establish:
         mock_client = AsyncMock()
+        mock_client.services = None
         mock_establish.return_value = mock_client
 
         await device.connect()
@@ -123,6 +124,7 @@ async def test_set_datetime(mock_ble_device):
     )
 
     mock_client = AsyncMock()
+    mock_client.services = None
     device._client = mock_client
     device.connected = True
 
@@ -172,6 +174,7 @@ async def test_set_unit_celsius(mock_ble_device):
     )
 
     mock_client = AsyncMock()
+    mock_client.services = None
     device._client = mock_client
     device.connected = True
 
@@ -196,6 +199,7 @@ async def test_set_unit_fahrenheit(mock_ble_device):
     )
 
     mock_client = AsyncMock()
+    mock_client.services = None
     device._client = mock_client
     device.connected = True
 
@@ -206,3 +210,38 @@ async def test_set_unit_fahrenheit(mock_ble_device):
 
     expected = bytes([90, 6, 6, 2, 255, 255, 255, 255, 250])
     assert command == expected
+
+
+@pytest.mark.asyncio
+async def test_write_command_retries_without_response_on_unsupported_request(
+    mock_ble_device,
+):
+    """Test command writes fall back to write without response."""
+    callback = MagicMock()
+    device = EasyHomeDevice(
+        address="AA:BB:CC:DD:EE:FF",
+        notify_callback=callback,
+        ble_device=mock_ble_device,
+    )
+
+    mock_client = AsyncMock()
+    mock_services = MagicMock()
+    mock_characteristic = MagicMock()
+    mock_characteristic.properties = {"write"}
+    mock_services.get_characteristic.return_value = mock_characteristic
+    mock_client.services = mock_services
+    mock_client.write_gatt_char = AsyncMock(
+        side_effect=[
+            BleakError("Request not supported"),
+            None,
+        ]
+    )
+    device._client = mock_client
+
+    await device._send_unit_sync(celsius=True)
+
+    assert mock_client.write_gatt_char.await_count == 2
+    first_call = mock_client.write_gatt_char.await_args_list[0]
+    second_call = mock_client.write_gatt_char.await_args_list[1]
+    assert first_call.kwargs["response"] is True
+    assert second_call.kwargs["response"] is False
