@@ -23,7 +23,7 @@ packages = [
 "Changelog" = "https://github.com/chmielowiec/easyathome-ble/blob/main/CHANGELOG.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.14"
 bleak = ">=2.1.1,<4.0.0"
 bleak-retry-connector = ">=4.4.3,<5.0.0"
 
@@ -58,7 +58,7 @@ exclude_lines = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py314"
 preview = true
 
 [tool.ruff.lint]
